@@ -7,14 +7,30 @@ backend), and works for any author.
 
 ## Install
 
-At a Claude Code prompt in a terminal:
+At a Claude Code prompt in a terminal, add the marketplace, then install
+from it:
 
 ```
-/plugin install temper-pr-queue --marketplace notactuallytreyanastasio/temper-pr-queue
+/plugin marketplace add notactuallytreyanastasio/temper-pr-queue
+/plugin install temper-pr-queue@temper-pr-queue
 ```
 
-Answer `y` to add the marketplace, then pick a scope (user scope keeps it in
-every session). It needs `gh`, logged in, on your `PATH`.
+Or from a shell:
+
+```
+claude plugin marketplace add notactuallytreyanastasio/temper-pr-queue
+claude plugin install temper-pr-queue@temper-pr-queue
+```
+
+`claude plugin list` should then show `temper-pr-queue@temper-pr-queue` as
+enabled, and a new session has `/pr-queue` and `/pr-review`. It needs `gh`,
+logged in, on your `PATH`.
+
+The mod is a function-hooks module (`hooks/register.tsx`), which is newer
+than other plugin kinds. It was built and tested on Claude Code 2.1.296. On
+an older version the install can succeed while the commands never appear;
+`claude --version` tells you which you have, and `claude update` moves you
+forward.
 
 ## What it adds
 
