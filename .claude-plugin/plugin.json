@@ -1,6 +1,6 @@
 {
   "name": "temper-pr-queue",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A review queue for the open temperlang/temper PRs from one author: grouped, sized, overlap-aware, with a guided review per PR",
   "types": "./types/index.d.ts",
   "author": {

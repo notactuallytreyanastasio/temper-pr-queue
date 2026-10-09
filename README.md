@@ -32,6 +32,13 @@ an older version the install can succeed while the commands never appear;
 `claude --version` tells you which you have, and `claude update` moves you
 forward.
 
+If `/pr-queue` answers that gh was not found, Claude Code was started
+without `gh` on its `PATH` (the desktop app and IDEs do not read your shell
+profile). The mod also looks in `/opt/homebrew/bin`, `/usr/local/bin` and
+`/usr/bin`; otherwise start `claude` from a terminal where `gh --version`
+works. After an update, `/plugin marketplace update temper-pr-queue` and a
+new session pick up the new version.
+
 ## What it adds
 
 `/pr-queue [login]` fetches the author's open PRs on temperlang/temper and

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, HookFailure, Register } from 'claude-code'
 
 import type { Queue, QueuedPr } from '../types'
 
@@ -95,17 +95,35 @@ export function mergeOrder(q: Queue): number[] {
   return [...q.prs].sort((a, b) => weight(a) - weight(b) || a.number - b.number).map(p => p.number)
 }
 
+// Claude Code started from the desktop app or an IDE does not get the shell's
+// PATH, so gh installed by Homebrew is not found by name. These are the usual
+// places it lives, tried in order after the bare name.
+const GH_CANDIDATES = ['gh', '/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/home/linuxbrew/.linuxbrew/bin/gh', '/usr/bin/gh']
+
+export const GH_MISSING =
+  'gh (the GitHub CLI) was not found on the PATH Claude Code started with, nor in /opt/homebrew/bin, ' +
+  '/usr/local/bin or /usr/bin. Install it from https://cli.github.com, run `gh auth login`, and start ' +
+  'Claude Code from a shell where `gh --version` works.'
+
 async function fetchQueue($: EngineInterface, author: string): Promise<Queue> {
   const fields = 'number,title,body,files,additions,deletions,mergeable,reviewDecision,isDraft'
-  const ran = await $.process.run(
-    ['gh', 'pr', 'list', '-R', REPO, '--author', author, '--state', 'open', '--limit', '200', '--json', fields],
-    { timeoutMs: 120_000 },
-  )
-  const fetchedAt = new Date().toISOString()
-  if (ran.exitCode !== 0) {
-    return { repo: REPO, author, fetchedAt, prs: [], error: ran.stderr.trim() || `gh exited ${ran.exitCode}` }
+  const args = ['pr', 'list', '-R', REPO, '--author', author, '--state', 'open', '--limit', '200', '--json', fields]
+  const failed = (error: string): Queue => ({ repo: REPO, author, fetchedAt: new Date().toISOString(), prs: [], error })
+  for (const gh of GH_CANDIDATES) {
+    let ran
+    try {
+      ran = await $.process.run([gh, ...args], { timeoutMs: 120_000 })
+    } catch {
+      continue // not installed here; try the next place
+    }
+    if (ran.exitCode !== 0) return failed(`gh failed: ${ran.stderr.trim() || `exit ${ran.exitCode}`}`)
+    try {
+      return toQueue(JSON.parse(ran.stdout) as GhPr[], author, new Date().toISOString())
+    } catch (err) {
+      return failed(`gh answered with something that is not the expected JSON: ${String(err)}`)
+    }
   }
-  return toQueue(JSON.parse(ran.stdout) as GhPr[], author, fetchedAt)
+  return failed(GH_MISSING)
 }
 
 function reviewPrompt(n: number, q: Queue | null): string {
@@ -126,6 +144,9 @@ function reviewPrompt(n: number, q: Queue | null): string {
     'Report: a verdict (merge, merge after another PR, or changes needed), the evidence for it with real output, and any concern with file:line. Remove the worktree when done.',
   ].join('\n')
 }
+
+const failure = (f: HookFailure) =>
+  f.kind === 'timeout' ? `it ran past its ${f.budget} ms budget` : f.message ?? f.kind
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -158,21 +179,21 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pr-queue' }, async ($, e) => {
     const author = e.args.trim() || DEFAULT_AUTHOR
-    await $.ui.toast(`Fetching open ${REPO} PRs by ${author}`)
+    void $.ui.toast(`Fetching open ${REPO} PRs by ${author}`)
     const q = await fetchQueue($, author)
     await update($, queue, () => q)
     await $.ui.open({ id: PANE, title: `PRs by ${author}` })
-    if (q.error) return { text: `gh failed: ${q.error}` }
+    if (q.error) return { text: q.error }
     const order = mergeOrder(q).slice(0, 10).map(n => '#' + n).join(' ')
     return { text: `${q.prs.length} open PRs by ${author}. Suggested first merges: ${order}` }
-  })
+  }).catch((_$, _e, next) => ({ text: `pr-queue failed: ${failure(next.error)}` }))
 
   on('command.run', { command: 'pr-review' }, async ($, e) => {
     const n = Number(e.args.trim().replace(/^#/, ''))
     if (!Number.isInteger(n) || n <= 0) return { text: 'Usage: /pr-review <PR number>' }
     void $.prompt.submit({ text: reviewPrompt(n, await read($, queue)) })
     return { text: `Queued a merge review of ${REPO}#${n}.` }
-  })
+  }).catch((_$, _e, next) => ({ text: `pr-review failed: ${failure(next.error)}` }))
 
   on('tool.call', { tool: 'mcp__temper-pr-queue__pr_queue' }, async ($, e) => {
     const input = (e.input ?? {}) as { author?: string; refresh?: boolean }
@@ -185,13 +206,13 @@ export const register: Register = on => {
     const out = { ...q, mergeOrder: mergeOrder(q) }
     // A plugin tool's result is text or content blocks; the queue goes as JSON text.
     return { result: JSON.stringify(out) }
-  })
+  }).catch((_$, _e, next) => ({ result: `pr_queue failed: ${failure(next.error)}` }))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
     const q = await read($, queue)
     if (!q) return <Text dimColor>Run /pr-queue to fetch the queue.</Text>
-    if (q.error) return <Text color="red">gh failed: {q.error}</Text>
+    if (q.error) return <Text color="red">{q.error}</Text>
 
     const groups = new Map<string, QueuedPr[]>()
     for (const p of q.prs) groups.set(p.subsystem, [...(groups.get(p.subsystem) ?? []), p])
