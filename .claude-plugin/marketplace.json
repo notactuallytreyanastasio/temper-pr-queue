@@ -1,0 +1,13 @@
+{
+  "name": "temper-pr-queue",
+  "description": "A Claude Code mod for reviewing a batch of open temperlang/temper pull requests",
+  "owner": {
+    "name": "Bobby Grayson"
+  },
+  "plugins": [
+    {
+      "name": "temper-pr-queue",
+      "source": "./"
+    }
+  ]
+}
